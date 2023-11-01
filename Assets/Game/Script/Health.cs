@@ -4,13 +4,19 @@ using UnityEngine;
 
 public class Health : MonoBehaviour
 {
-    void Start()
+    public int MaxHealth;
+    public int CurrentHealth;
+    private Character _cc;
+
+    private void Awake()
     {
-        
+        CurrentHealth = MaxHealth;
+        _cc = GetComponent<Character>();
     }
 
-    void Update()
+    public void ApplyDamage(int damage)
     {
-        
+        CurrentHealth -= damage;
+
     }
 }

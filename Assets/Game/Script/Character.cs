@@ -18,6 +18,12 @@ public class Character : MonoBehaviour
     private UnityEngine.AI.NavMeshAgent _navMaeshAgent;
     private Transform TargetPlayer;
 
+    // health
+    private Health _health;
+
+    // Damage Caster
+    private DamageCaster _damageCaster;
+
     // Player slides
     private float attackStartTime;
     public float AttackSlideDuration = 0.4f;
@@ -26,16 +32,27 @@ public class Character : MonoBehaviour
 
     public enum CharacterState
     {
-        Normal, Attacking,
+        Normal, Attacking, Dead, BeingHit,
     }
 
     public CharacterState CurrentState;
+
+    // Material animation
+    private MaterialPropertyBlock _materialPropertyBlock;
+    private SkinnedMeshRenderer _skinnedMeshRenderer;
 
 
     private void Awake()
     {
         _cc = GetComponent<CharacterController>();
         _animator = GetComponent<Animator>();
+        _health = GetComponent<Health>();
+        _damageCaster = GetComponentInChildren<DamageCaster>();
+
+        _skinnedMeshRenderer = GetComponentInChildren<SkinnedMeshRenderer>();
+        _materialPropertyBlock = new MaterialPropertyBlock();
+        _skinnedMeshRenderer.GetPropertyBlock(_materialPropertyBlock);
+
 
         if (!IsPlayer)
         {
@@ -141,6 +158,13 @@ public class Character : MonoBehaviour
             case CharacterState.Normal:
                 break;
             case CharacterState.Attacking:
+                if (_damageCaster != null)
+                    DisableDamageCaster();
+
+                break;
+            case CharacterState.Dead:
+                return;
+            case CharacterState.BeingHit:
                 break;
         }
 
@@ -172,5 +196,41 @@ public class Character : MonoBehaviour
     public void AttackAnimationEnds()
     {
         SwitchStateTo(CharacterState.Normal);
+    }
+
+    public void ApplyDamge(int damage, Vector3 attackerPos = new Vector3())
+    {
+        if (_health != null)
+        {
+            _health.ApplyDamage(damage);
+        }
+
+        if (!IsPlayer)
+        {
+            GetComponent<EnemyVFXManager>().PlayBeingHitVFX(attackerPos);
+        }
+
+        StartCoroutine(MaterialBlink());
+    }
+
+    public void EnableDamageCaster()
+    {
+        _damageCaster.EnableDamageCaster();
+    }
+
+    public void DisableDamageCaster()
+    {
+        _damageCaster.DisableDamageCaster();
+    }
+
+    IEnumerator MaterialBlink()
+    {
+        _materialPropertyBlock.SetFloat("_blink", 0.4f);
+        _skinnedMeshRenderer.SetPropertyBlock(_materialPropertyBlock);
+
+        yield return new WaitForSeconds(0.2f);
+
+        _materialPropertyBlock.SetFloat("_blink", 0f);
+        _skinnedMeshRenderer.SetPropertyBlock(_materialPropertyBlock);
     }
 }
