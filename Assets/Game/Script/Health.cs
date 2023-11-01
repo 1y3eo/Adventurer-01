@@ -18,5 +18,14 @@ public class Health : MonoBehaviour
     {
         CurrentHealth -= damage;
 
+        CheckHealth();
+    }
+
+    private void CheckHealth()
+    {
+        if (CurrentHealth <= 0)
+        {
+            _cc.SwitchStateTo(Character.CharacterState.Dead);
+        }
     }
 }
