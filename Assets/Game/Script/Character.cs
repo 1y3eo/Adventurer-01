@@ -13,6 +13,8 @@ public class Character : MonoBehaviour
     public float Gravity = -9.8f;
     private Animator _animator;
 
+    public int Coin;
+
     // Enemy
     public bool IsPlayer = true;
     private UnityEngine.AI.NavMeshAgent _navMaeshAgent;
@@ -29,10 +31,18 @@ public class Character : MonoBehaviour
     public float AttackSlideDuration = 0.4f;
     public float AttackSlideSpeed = 0.06f;
 
+    private Vector3 impactOnCharacter;
+
+    public bool IsInvincible;
+    public float invincibleDuration = 2f;
+
+    private float attackAnimationDuration;
+    public float SlideSpeed = 9f;
+
 
     public enum CharacterState
     {
-        Normal, Attacking, Dead, BeingHit,
+        Normal, Attacking, Dead, BeingHit, Slide,
     }
 
     public CharacterState CurrentState;
@@ -73,6 +83,11 @@ public class Character : MonoBehaviour
         if (_playerInput.MouseButtonDown && _cc.isGrounded)
         {
             SwitchStateTo(CharacterState.Attacking);
+            return;
+        }
+        else if (_playerInput.SpaceKeyDown && _cc.isGrounded)
+        {
+            SwitchStateTo(CharacterState.Slide);
             return;
         }
 
@@ -117,22 +132,49 @@ public class Character : MonoBehaviour
                 else
                     CalculateEnemyMovement();
                 break;
+
             case CharacterState.Attacking:
                 if (IsPlayer)
                 {
-                    _movementVelocity = Vector3.zero;
-
                     if (Time.time < attackStartTime + AttackSlideDuration)
                     {
                         float timePassed = Time.time - attackStartTime;
                         float lerpTime = timePassed / AttackSlideDuration;
                         _movementVelocity = Vector3.Lerp(transform.forward * AttackSlideSpeed, Vector3.zero, lerpTime);
                     }
+
+                    if (_playerInput.MouseButtonDown && _cc.isGrounded)
+                    {
+                        string currentClipName = _animator.GetCurrentAnimatorClipInfo(0)[0].clip.name;
+                        attackAnimationDuration = _animator.GetCurrentAnimatorStateInfo(0).normalizedTime;
+
+                        if (currentClipName != "LittleAdventurerAndie_ATTACK_03" && attackAnimationDuration > 0.5f && attackAnimationDuration < 0.7f)
+                        {
+                            _playerInput.MouseButtonDown = false;
+                            SwitchStateTo(CharacterState.Attacking);
+
+                            CalculatePlayerMovement();
+                        }
+                    }
                 }
 
                 break;
+
             case CharacterState.Dead:
                 return;
+
+            case CharacterState.BeingHit:
+                if (impactOnCharacter.magnitude > 0.2f)
+                {
+                    _movementVelocity = impactOnCharacter * Time.deltaTime;
+                }
+                impactOnCharacter = Vector3.Lerp(impactOnCharacter, Vector3.zero, Time.deltaTime * 5);
+
+                break;
+
+            case CharacterState.Slide:
+                _movementVelocity = transform.forward * SlideSpeed * Time.deltaTime;
+                break;
         }
 
         if (IsPlayer)
@@ -145,6 +187,7 @@ public class Character : MonoBehaviour
             _movementVelocity += _verticalVelocity * Vector3.up * Time.deltaTime;
 
             _cc.Move(_movementVelocity);
+            _movementVelocity = Vector3.zero;
         }
     }
 
@@ -152,8 +195,7 @@ public class Character : MonoBehaviour
     {
         if (IsPlayer)
         {
-            // clear Cache
-            _playerInput.MouseButtonDown = false;
+            _playerInput.ClearCache();
         }
 
         // Exiting state
@@ -164,11 +206,14 @@ public class Character : MonoBehaviour
             case CharacterState.Attacking:
                 if (_damageCaster != null)
                     DisableDamageCaster();
-
+                if (IsPlayer)
+                    GetComponent<PlayerVFXManager>().StopBlade();
                 break;
             case CharacterState.Dead:
                 return;
             case CharacterState.BeingHit:
+                break;
+            case CharacterState.Slide:
                 break;
         }
 
@@ -197,6 +242,19 @@ public class Character : MonoBehaviour
                 _animator.SetTrigger("Dead");
                 StartCoroutine(MaterialDissolve());
                 break;
+            case CharacterState.BeingHit:
+                _animator.SetTrigger("BeingHit");
+
+                if (IsPlayer)
+                {
+                    IsInvincible = true;
+                    StartCoroutine(DelayCancelInvincible());
+                }
+                break;
+            case CharacterState.Slide:
+                _animator.SetTrigger("Slide");
+                break;
+
         }
 
         CurrentState = newState;
@@ -207,8 +265,23 @@ public class Character : MonoBehaviour
         SwitchStateTo(CharacterState.Normal);
     }
 
+    public void BeingHitAnimationEnds()
+    {
+        SwitchStateTo(CharacterState.Normal);
+    }
+
+    public void SlideAnimationEnds()
+    {
+        SwitchStateTo(CharacterState.Normal);
+    }
+
     public void ApplyDamge(int damage, Vector3 attackerPos = new Vector3())
     {
+        if (IsInvincible)
+        {
+            return;
+        }
+
         if (_health != null)
         {
             _health.ApplyDamage(damage);
@@ -220,6 +293,26 @@ public class Character : MonoBehaviour
         }
 
         StartCoroutine(MaterialBlink());
+
+        if (IsPlayer)
+        {
+            SwitchStateTo(CharacterState.BeingHit);
+            AddImpact(attackerPos, 10f);
+        }
+    }
+
+    IEnumerator DelayCancelInvincible()
+    {
+        yield return new WaitForSeconds(invincibleDuration);
+        IsInvincible = false;
+    }
+
+    private void AddImpact(Vector3 attackerPos, float force)
+    {
+        Vector3 impactDir = transform.position - attackerPos;
+        impactDir.Normalize();
+        impactDir.y = 0;
+        impactOnCharacter = impactDir * force;
     }
 
     public void EnableDamageCaster()
@@ -273,6 +366,38 @@ public class Character : MonoBehaviour
         if (ItemToDrop != null)
         {
             Instantiate(ItemToDrop, transform.position, Quaternion.identity);
+        }
+    }
+
+    public void PickUpItem(PickUp item)
+    {
+        switch (item.Type)
+        {
+            case PickUp.PickUpType.Heal:
+                AddHealth(item.Value);
+                break;
+            case PickUp.PickUpType.Coin:
+                AddCoin(item.Value);
+                break;
+        }
+    }
+
+    private void AddHealth(int health)
+    {
+        _health.AddHealth(health);
+        GetComponent<PlayerVFXManager>().PlayHealVFX();
+    }
+
+    private void AddCoin(int coin)
+    {
+        Coin += coin;
+    }
+
+    public void RotateToTarget()
+    {
+        if (CurrentState != CharacterState.Dead)
+        {
+            transform.LookAt(TargetPlayer, Vector3.up);
         }
     }
 }
